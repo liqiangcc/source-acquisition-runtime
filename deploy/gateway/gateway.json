@@ -1,0 +1,23 @@
+{
+  "mcpProxy": {
+    "baseURL": "http://127.0.0.1:8765",
+    "addr": "127.0.0.1:8765",
+    "name": "source-runtime-gateway",
+    "version": "0.1.0",
+    "type": "streamable-http",
+    "options": {
+      "panicIfInvalid": true,
+      "logEnabled": false
+    }
+  },
+  "mcpServers": {
+    "chrome-devtools": {
+      "command": "/usr/local/bin/source-chrome-devtools-mcp",
+      "args": [],
+      "options": {
+        "panicIfInvalid": true,
+        "logEnabled": false
+      }
+    }
+  }
+}

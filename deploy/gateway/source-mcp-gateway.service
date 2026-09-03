@@ -1,0 +1,17 @@
+[Unit]
+Description=Source Acquisition Runtime localhost MCP gateway
+Requires=source-chrome.service
+After=network-online.target source-chrome.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=source-runtime
+Group=source-runtime
+Environment=HOME=/var/lib/source-acquisition-runtime
+ExecStart=/opt/source-acquisition-runtime/gateway/mcp-proxy -config /etc/source-acquisition-runtime/gateway.json -log-level info
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
