@@ -4,6 +4,8 @@ set -euo pipefail
 fail=0
 check_takeover=0
 check_mcp=0
+check_gateway=0
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 pass() { printf '[PASS] %s\n' "$*"; }
 warn() { printf '[WARN] %s\n' "$*"; }
 fail_check() { printf '[FAIL] %s\n' "$*"; fail=1; }
@@ -12,6 +14,7 @@ for arg in "$@"; do
   case "$arg" in
     --human-takeover) check_takeover=1 ;;
     --mcp-smoke) check_mcp=1 ;;
+    --gateway) check_gateway=1 ;;
     *) echo "ERROR: unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -102,6 +105,39 @@ fi
 
 if [[ "$check_mcp" -eq 1 ]]; then
   if node "$mcp_root/mcp-smoke.mjs"; then pass "MCP smoke"; else fail_check "MCP smoke"; fi
+fi
+
+if [[ "$check_gateway" -eq 1 ]]; then
+  if systemctl is-active --quiet source-mcp-gateway.service; then
+    pass "source-mcp-gateway.service active"
+  else
+    fail_check "source-mcp-gateway.service active"
+  fi
+
+  gateway_listeners="$(ss -H -ltn 'sport = :8765' | awk '{print $4}' || true)"
+  if [[ "$gateway_listeners" == '127.0.0.1:8765' ]]; then
+    pass "MCP gateway localhost-only: $gateway_listeners"
+  else
+    fail_check "MCP gateway listener must be exactly 127.0.0.1:8765; observed: $gateway_listeners"
+  fi
+
+  if curl -fsS --max-time 2 http://127.0.0.1:8765/_healthz >/dev/null 2>&1; then
+    pass "MCP gateway health"
+  else
+    fail_check "MCP gateway health"
+  fi
+
+  if curl -fsS --max-time 2 http://127.0.0.1:8765/_readyz >/dev/null 2>&1; then
+    pass "MCP gateway downstream ready"
+  else
+    fail_check "MCP gateway downstream ready"
+  fi
+
+  if node "$script_dir/gateway-smoke.mjs"; then
+    pass "MCP gateway Streamable HTTP smoke"
+  else
+    fail_check "MCP gateway Streamable HTTP smoke"
+  fi
 fi
 
 exit "$fail"
