@@ -66,9 +66,9 @@ Chrome CDP 在增加 human takeover 后仍然只监听：
 
 因此人工接管没有改变 CDP 安全边界，也没有启动 Remote MCP / Gateway / Tunnel。
 
-## 3. 当前人工 Gate
+## 3. 人工 Gate（已完成）
 
-用户需要在同一 Tailscale tailnet 的设备上打开：
+用户在同一 Tailscale tailnet 的设备上打开：
 
 ```text
 http://100.109.226.71:6080/vnc.html?autoconnect=1&resize=scale
@@ -76,4 +76,53 @@ http://100.109.226.71:6080/vnc.html?autoconnect=1&resize=scale
 
 然后在可视 Chrome 中按小红书正常流程完成登录。
 
-完成后 Agent 必须重新读取页面状态，并验证 Chrome 重启后的登录态持久性。
+2026-09-03 用户完成正常登录。
+
+## 4. 登录态与 Profile 持久性验证
+
+人工登录完成后，Chrome DevTools MCP 实际读取到两个小红书标签页：一个旧标签仍保留登录弹窗，另一个已进入真实账号态。已登录页面满足：
+
+```text
+login prompt: absent
+account navigation: 通知 / 消息 / 我
+profile link: present
+```
+
+因此没有把“用户说已登录”直接当成成功，而是以浏览器实际页面状态确认。
+
+随后执行：
+
+```text
+stop + disable source-novnc.service / source-x11vnc.service
+restart source-chrome.service
+open a fresh https://www.xiaohongshu.com/explore via Chrome DevTools MCP
+```
+
+真实结果：
+
+```text
+Chrome PID: 304268 -> 311036
+Browser Profile inode: 2474 -> 2474
+Browser Profile owner/mode: source-runtime:source-runtime 700
+CDP listener: 127.0.0.1:9222 only
+5900/6080 listeners after takeover stop: none
+fresh page login_prompt=false
+fresh page account_navigation=true
+login_persistence=PASS
+```
+
+这证明首个真实站点登录态能够跨 Chrome service restart 由同一个 dedicated Browser Profile 持久化。没有读取、记录或提交 Cookie、Token 或 Profile 内容。
+
+## 5. Human-takeover 生命周期修正
+
+真实 Pilot 证明人工接管只是登录期间的短暂能力，不应成为常驻服务。因此实现调整为：
+
+```text
+install -> inactive by default
+source-human-takeover-start -> temporary 5900/6080
+human login
+source-human-takeover-stop -> no 5900/6080 listeners
+core Chrome/Xvfb/CDP/MCP continue running
+```
+
+默认 `scripts/doctor` 不再要求 human-takeover active；只有显式 `--human-takeover` 才验证该临时层。

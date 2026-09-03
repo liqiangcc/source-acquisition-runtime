@@ -59,6 +59,18 @@ Xvfb :99
 deploy/human-takeover/install.sh
 ```
 
+安装完成后 **默认不启动** human-takeover。需要人工登录时执行：
+
+```text
+source-human-takeover-start
+```
+
+登录完成后立即关闭：
+
+```text
+source-human-takeover-stop
+```
+
 安装：
 
 - `x11vnc`
@@ -72,6 +84,17 @@ deploy/human-takeover/install.sh
 ```text
 SOURCE_TAKEOVER_INTERFACE=tailscale0
 SOURCE_TAKEOVER_PORT=6080
+```
+
+生命周期：
+
+```text
+installed + inactive
+→ manual-login-required
+→ source-human-takeover-start
+→ 正常人工登录
+→ source-human-takeover-stop
+→ 5900/6080 无监听
 ```
 
 ## 5. 验收
@@ -102,7 +125,7 @@ Chrome CDP still 127.0.0.1:9222 only
 
 不允许 Runtime 自动绕过验证码、设备确认或平台安全机制。
 
-完成登录后关闭或保留 human-takeover service 都不应改变 Browser Profile identity；随后应验证：
+完成登录后应关闭 human-takeover service；关闭操作不应改变 Browser Profile identity。随后应验证：
 
 ```text
 正常登录
@@ -111,3 +134,15 @@ Chrome CDP still 127.0.0.1:9222 only
 → same dedicated profile
 → 正常会话按浏览器/平台自身规则仍可用
 ```
+
+## 7. Doctor 模式
+
+默认 `scripts/doctor` 只要求核心 Runtime 健康，并验证人工接管关闭时 `5900/6080` 没有残留监听。
+
+只有人工接管实际开启时，使用：
+
+```text
+scripts/doctor --human-takeover
+```
+
+此时才要求 `source-x11vnc.service`、`source-novnc.service` 和对应监听全部在线且边界正确。`--human-takeover` 可以与 `--mcp-smoke` 同时使用。
