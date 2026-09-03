@@ -25,6 +25,13 @@ async function call(name, args = {}) {
   return result;
 }
 
+async function selectedPageId() {
+  const pages = await call('list_pages');
+  const match = text(pages).match(/^(\d+): .*\[selected\]\s*$/m);
+  if (!match) throw new Error(`could not determine selected pageId from list_pages: ${text(pages)}`);
+  return Number(match[1]);
+}
+
 try {
   await client.connect(transport);
   const {tools} = await client.listTools();
@@ -38,21 +45,24 @@ try {
   console.log(`[PASS] list_pages: ${text(pages).slice(0, 300).replaceAll('\n', ' ')}`);
 
   await call('new_page', {url: 'https://example.com', timeout: 15000});
-  const exampleSnapshot = await call('take_snapshot');
+  const examplePageId = await selectedPageId();
+  const exampleSnapshot = await call('take_snapshot', {pageId: examplePageId});
   const exampleText = text(exampleSnapshot);
   if (!/Example Domain/i.test(exampleText)) throw new Error('example.com snapshot did not contain expected text');
-  console.log('[PASS] outbound navigation + page snapshot: https://example.com');
+  console.log(`[PASS] outbound navigation + page snapshot: https://example.com (pageId=${examplePageId})`);
 
   const html = '<!doctype html><title>before</title><button id="pilot" onclick="document.title=\'after\';this.textContent=\'clicked\'">click me</button>';
   await call('new_page', {url: `data:text/html,${encodeURIComponent(html)}`});
-  const before = text(await call('take_snapshot'));
+  const interactionPageId = await selectedPageId();
+  const before = text(await call('take_snapshot', {pageId: interactionPageId}));
   if (!/click me/i.test(before)) throw new Error('test button not visible in pre-interaction snapshot');
   const interaction = await call('evaluate_script', {
+    pageId: interactionPageId,
     function: "() => { const button = document.querySelector('#pilot'); button.click(); return {title: document.title, text: button.textContent}; }",
   });
-  const after = text(await call('take_snapshot'));
+  const after = text(await call('take_snapshot', {pageId: interactionPageId}));
   if (!/clicked/i.test(after) || !/after/i.test(text(interaction))) throw new Error('browser interaction verification failed');
-  console.log('[PASS] page structure + simple interaction via MCP');
+  console.log(`[PASS] page structure + simple interaction via MCP (pageId=${interactionPageId})`);
 } finally {
   await client.close().catch(() => {});
 }
