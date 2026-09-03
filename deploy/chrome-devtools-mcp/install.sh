@@ -37,7 +37,9 @@ cat >"$mcp_root/package.json" <<EOF
 }
 EOF
 
-npm install --prefix "$mcp_root" --omit=dev --no-audit --no-fund
+# The runtime owns the persistent system Chrome lifecycle. Prevent Puppeteer,
+# a dependency of chrome-devtools-mcp, from downloading a second browser.
+PUPPETEER_SKIP_DOWNLOAD=true npm install --prefix "$mcp_root" --omit=dev --no-audit --no-fund
 
 actual="$(node -p "require('$mcp_root/node_modules/chrome-devtools-mcp/package.json').version")"
 if [[ "$actual" != "$CHROME_DEVTOOLS_MCP_VERSION" ]]; then
