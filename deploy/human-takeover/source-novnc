@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+interface="${SOURCE_TAKEOVER_INTERFACE:-tailscale0}"
+port="${SOURCE_TAKEOVER_PORT:-6080}"
+
+bind_ip="$(ip -4 -o addr show dev "$interface" scope global | awk '{print $4}' | cut -d/ -f1 | head -1)"
+if [[ -z "$bind_ip" ]]; then
+  echo "ERROR: $interface has no IPv4 address" >&2
+  exit 1
+fi
+
+exec /usr/bin/websockify --web=/usr/share/novnc "${bind_ip}:${port}" 127.0.0.1:5900

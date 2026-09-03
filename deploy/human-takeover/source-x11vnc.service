@@ -1,0 +1,16 @@
+[Unit]
+Description=Source Acquisition Runtime local VNC bridge
+Requires=source-xvfb.service
+After=source-xvfb.service
+
+[Service]
+Type=simple
+User=source-runtime
+Group=source-runtime
+Environment=HOME=/var/lib/source-acquisition-runtime
+ExecStart=/usr/bin/x11vnc -display :99 -localhost -rfbport 5900 -forever -shared -nopw
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

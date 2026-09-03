@@ -41,6 +41,32 @@ else
   fail_check "CDP reachable on localhost"
 fi
 
+if systemctl cat source-x11vnc.service >/dev/null 2>&1; then
+  if systemctl is-active --quiet source-x11vnc.service; then pass "source-x11vnc.service active"; else fail_check "source-x11vnc.service active"; fi
+  vnc_listeners="$(ss -H -ltn 'sport = :5900' | awk '{print $4}' || true)"
+  if [[ -z "$vnc_listeners" ]]; then
+    fail_check "VNC loopback listener exists"
+  elif printf '%s\n' "$vnc_listeners" | grep -Eqv '^(127\.0\.0\.1|\[::1\]):5900$'; then
+    fail_check "VNC listener is loopback-only; observed: $vnc_listeners"
+  else
+    pass "VNC loopback-only: $(printf '%s' "$vnc_listeners" | tr '\n' ' ')"
+  fi
+fi
+
+if systemctl cat source-novnc.service >/dev/null 2>&1; then
+  if systemctl is-active --quiet source-novnc.service; then pass "source-novnc.service active"; else fail_check "source-novnc.service active"; fi
+  takeover_ip="$(ip -4 -o addr show dev tailscale0 scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)"
+  novnc_listeners="$(ss -H -ltn 'sport = :6080' | awk '{print $4}' || true)"
+  if [[ -z "$takeover_ip" ]]; then
+    fail_check "tailscale0 IPv4 exists for human takeover"
+  elif [[ "$novnc_listeners" == "$takeover_ip:6080" ]]; then
+    pass "noVNC tailnet-only: $novnc_listeners"
+    if curl --noproxy '*' -fsS --max-time 2 "http://$takeover_ip:6080/vnc.html" >/dev/null 2>&1; then pass "noVNC page reachable on tailnet address"; else fail_check "noVNC page reachable on tailnet address"; fi
+  else
+    fail_check "noVNC listener matches tailnet address; observed: $novnc_listeners expected: $takeover_ip:6080"
+  fi
+fi
+
 mcp_root=/opt/source-acquisition-runtime/chrome-devtools-mcp
 if [[ -f "$mcp_root/node_modules/chrome-devtools-mcp/package.json" ]]; then
   version="$(node -p "require('$mcp_root/node_modules/chrome-devtools-mcp/package.json').version")"

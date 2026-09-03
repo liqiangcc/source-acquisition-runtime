@@ -1,0 +1,19 @@
+[Unit]
+Description=Source Acquisition Runtime noVNC tailnet-only human takeover
+Requires=source-x11vnc.service
+After=source-x11vnc.service tailscaled.service
+Wants=tailscaled.service
+
+[Service]
+Type=simple
+User=source-runtime
+Group=source-runtime
+Environment=HOME=/var/lib/source-acquisition-runtime
+Environment=SOURCE_TAKEOVER_INTERFACE=tailscale0
+Environment=SOURCE_TAKEOVER_PORT=6080
+ExecStart=/usr/local/bin/source-novnc
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
