@@ -8,7 +8,7 @@ Type=simple
 User=source-runtime
 Group=source-runtime
 Environment=HOME=/var/lib/source-acquisition-runtime
-ExecStart=/usr/bin/x11vnc -display :99 -localhost -rfbport 5900 -forever -shared -nopw
+ExecStart=/usr/bin/x11vnc -display :99 -localhost -rfbport 5900 -forever -shared -rfbauth /var/lib/source-acquisition-runtime/state/x11vnc.pass
 Restart=on-failure
 RestartSec=2
 
