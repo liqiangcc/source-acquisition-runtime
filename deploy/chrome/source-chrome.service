@@ -1,0 +1,29 @@
+[Unit]
+Description=Source Acquisition Runtime persistent Chrome
+Requires=source-xvfb.service
+After=network-online.target source-xvfb.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=source-runtime
+Group=source-runtime
+Environment=HOME=/var/lib/source-acquisition-runtime
+Environment=DISPLAY=:99
+ExecStart=/usr/bin/google-chrome-stable \
+  --user-data-dir=/var/lib/source-acquisition-runtime/chrome-profile \
+  --remote-debugging-address=127.0.0.1 \
+  --remote-debugging-port=9222 \
+  --no-first-run \
+  --no-default-browser-check \
+  --disable-dev-shm-usage \
+  --window-size=1280,960 \
+  --ozone-platform=x11 \
+  about:blank
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=20
+KillMode=mixed
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+fail=0
+pass() { printf '[PASS] %s\n' "$*"; }
+warn() { printf '[WARN] %s\n' "$*"; }
+fail_check() { printf '[FAIL] %s\n' "$*"; fail=1; }
+
+if command -v google-chrome-stable >/dev/null 2>&1; then
+  pass "Chrome installed: $(google-chrome-stable --version)"
+else
+  fail_check "Chrome installed"
+fi
+
+for unit in source-xvfb.service source-chrome.service; do
+  if systemctl is-active --quiet "$unit"; then pass "$unit active"; else fail_check "$unit active"; fi
+done
+
+profile=/var/lib/source-acquisition-runtime/chrome-profile
+if [[ -d "$profile" ]]; then
+  owner="$(stat -c '%U:%G' "$profile")"
+  mode="$(stat -c '%a' "$profile")"
+  [[ "$owner" == 'source-runtime:source-runtime' ]] && pass "dedicated profile owner $owner" || fail_check "profile owner is $owner"
+  [[ "$mode" == '700' ]] && pass "dedicated profile mode 700" || warn "profile mode is $mode"
+else
+  fail_check "dedicated profile exists"
+fi
+
+listeners="$(ss -H -ltn 'sport = :9222' | awk '{print $4}' || true)"
+if [[ -z "$listeners" ]]; then
+  fail_check "CDP listener exists"
+elif printf '%s\n' "$listeners" | grep -Eqv '^(127\.0\.0\.1|\[::1\]):9222$'; then
+  fail_check "CDP listener is localhost-only; observed: $listeners"
+else
+  pass "CDP localhost-only: $(printf '%s' "$listeners" | tr '\n' ' ')"
+fi
+
+if curl -fsS --max-time 2 http://127.0.0.1:9222/json/version >/dev/null 2>&1; then
+  pass "CDP reachable on localhost"
+else
+  fail_check "CDP reachable on localhost"
+fi
+
+mcp_root=/opt/source-acquisition-runtime/chrome-devtools-mcp
+if [[ -f "$mcp_root/node_modules/chrome-devtools-mcp/package.json" ]]; then
+  version="$(node -p "require('$mcp_root/node_modules/chrome-devtools-mcp/package.json').version")"
+  pass "chrome-devtools-mcp installed: $version"
+else
+  warn "chrome-devtools-mcp not installed yet"
+fi
+
+if [[ "${1:-}" == '--mcp-smoke' ]]; then
+  if node "$mcp_root/mcp-smoke.mjs"; then pass "MCP smoke"; else fail_check "MCP smoke"; fi
+fi
+
+exit "$fail"

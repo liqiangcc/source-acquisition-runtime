@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mcp_root="${SOURCE_MCP_ROOT:-/opt/source-acquisition-runtime/chrome-devtools-mcp}"
+cdp_url="${SOURCE_CHROME_CDP_URL:-http://127.0.0.1:9222}"
+exec "$mcp_root/node_modules/.bin/chrome-devtools-mcp" --browser-url="$cdp_url" "$@"
