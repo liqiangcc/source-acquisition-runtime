@@ -47,6 +47,8 @@ if [[ "$actual" != "$CHROME_DEVTOOLS_MCP_VERSION" ]]; then
   exit 1
 fi
 
+node "$script_dir/apply-compat-patches.mjs" "$mcp_root"
+
 install -m 0755 "$script_dir/source-chrome-devtools-mcp" /usr/local/bin/source-chrome-devtools-mcp
 install -m 0755 "$repo_root/scripts/mcp-smoke.mjs" "$mcp_root/mcp-smoke.mjs"
 

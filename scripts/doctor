@@ -5,6 +5,7 @@ fail=0
 check_takeover=0
 check_mcp=0
 check_gateway=0
+check_navigate_timeout=0
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 pass() { printf '[PASS] %s\n' "$*"; }
 warn() { printf '[WARN] %s\n' "$*"; }
@@ -15,6 +16,7 @@ for arg in "$@"; do
     --human-takeover) check_takeover=1 ;;
     --mcp-smoke) check_mcp=1 ;;
     --gateway) check_gateway=1 ;;
+    --navigate-timeout) check_navigate_timeout=1 ;;
     *) echo "ERROR: unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -99,12 +101,25 @@ mcp_root=/opt/source-acquisition-runtime/chrome-devtools-mcp
 if [[ -f "$mcp_root/node_modules/chrome-devtools-mcp/package.json" ]]; then
   version="$(node -p "require('$mcp_root/node_modules/chrome-devtools-mcp/package.json').version")"
   pass "chrome-devtools-mcp installed: $version"
+  if node "$script_dir/../deploy/chrome-devtools-mcp/apply-compat-patches.mjs" --check "$mcp_root" >/dev/null; then
+    pass "chrome-devtools-mcp navigate timeout compatibility patch"
+  else
+    fail_check "chrome-devtools-mcp navigate timeout compatibility patch"
+  fi
 else
   warn "chrome-devtools-mcp not installed yet"
 fi
 
 if [[ "$check_mcp" -eq 1 ]]; then
   if node "$mcp_root/mcp-smoke.mjs"; then pass "MCP smoke"; else fail_check "MCP smoke"; fi
+fi
+
+if [[ "$check_navigate_timeout" -eq 1 ]]; then
+  if node "$script_dir/navigate-timeout-smoke.mjs"; then
+    pass "navigate timeout false-negative regression"
+  else
+    fail_check "navigate timeout false-negative regression"
+  fi
 fi
 
 if [[ "$check_gateway" -eq 1 ]]; then
