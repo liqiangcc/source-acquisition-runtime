@@ -24,6 +24,16 @@ if (( free_kb < 3145728 )); then
   exit 1
 fi
 
+shm_fstype="$(findmnt -n -o FSTYPE /dev/shm 2>/dev/null || true)"
+if [[ "$shm_fstype" != "tmpfs" ]]; then
+  echo "ERROR: /dev/shm must be mounted as tmpfs; observed: ${shm_fstype:-missing}" >&2
+  exit 1
+fi
+shm_avail_kb="$(df -k --output=avail /dev/shm | tail -1 | tr -d ' ')"
+if (( shm_avail_kb < 262144 )); then
+  echo "WARN: /dev/shm has less than 256 MiB available; Chrome tail latency may increase under pressure" >&2
+fi
+
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends ca-certificates curl gnupg xvfb

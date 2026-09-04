@@ -6,6 +6,7 @@ check_takeover=0
 check_mcp=0
 check_gateway=0
 check_navigate_timeout=0
+check_resource_pressure=0
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 pass() { printf '[PASS] %s\n' "$*"; }
 warn() { printf '[WARN] %s\n' "$*"; }
@@ -17,6 +18,7 @@ for arg in "$@"; do
     --mcp-smoke) check_mcp=1 ;;
     --gateway) check_gateway=1 ;;
     --navigate-timeout) check_navigate_timeout=1 ;;
+    --resource-pressure) check_resource_pressure=1 ;;
     *) echo "ERROR: unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -30,6 +32,95 @@ fi
 for unit in source-xvfb.service source-chrome.service; do
   if systemctl is-active --quiet "$unit"; then pass "$unit active"; else fail_check "$unit active"; fi
 done
+
+shm_fstype="$(findmnt -n -o FSTYPE /dev/shm 2>/dev/null || true)"
+if [[ "$shm_fstype" == "tmpfs" ]]; then
+  pass "/dev/shm is tmpfs"
+else
+  fail_check "/dev/shm must be tmpfs; observed: ${shm_fstype:-missing}"
+fi
+shm_total_kb="$(df -k --output=size /dev/shm 2>/dev/null | tail -1 | tr -d ' ' || true)"
+shm_avail_kb="$(df -k --output=avail /dev/shm 2>/dev/null | tail -1 | tr -d ' ' || true)"
+if [[ "$shm_total_kb" =~ ^[0-9]+$ && "$shm_avail_kb" =~ ^[0-9]+$ ]]; then
+  shm_total_mib=$((shm_total_kb / 1024))
+  shm_avail_mib=$((shm_avail_kb / 1024))
+  if (( shm_avail_kb < 262144 )); then
+    warn "/dev/shm available ${shm_avail_mib} MiB / ${shm_total_mib} MiB (<256 MiB)"
+  else
+    pass "/dev/shm capacity ${shm_avail_mib} MiB available / ${shm_total_mib} MiB total"
+  fi
+else
+  fail_check "unable to read /dev/shm capacity"
+fi
+
+chrome_pid="$(systemctl show -p MainPID --value source-chrome.service 2>/dev/null || true)"
+if [[ "$chrome_pid" =~ ^[1-9][0-9]*$ && -r "/proc/$chrome_pid/cmdline" ]]; then
+  if tr '\0' '\n' <"/proc/$chrome_pid/cmdline" | grep -Fxq -- '--disable-dev-shm-usage'; then
+    fail_check "Chrome must use /dev/shm; --disable-dev-shm-usage is active"
+  else
+    pass "Chrome uses native /dev/shm shared memory"
+  fi
+else
+  fail_check "unable to inspect source-chrome.service command line"
+fi
+
+if [[ "$check_resource_pressure" -eq 1 ]]; then
+  chrome_memory_bytes="$(systemctl show -p MemoryCurrent --value source-chrome.service 2>/dev/null || true)"
+  if [[ "$chrome_memory_bytes" =~ ^[0-9]+$ ]]; then
+    chrome_memory_mib=$((chrome_memory_bytes / 1048576))
+    pass "source-chrome.service MemoryCurrent ${chrome_memory_mib} MiB"
+  else
+    warn "unable to read source-chrome.service MemoryCurrent"
+  fi
+
+  page_count="$(curl -fsS --max-time 2 http://127.0.0.1:9222/json/list 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{try{const x=JSON.parse(s);console.log(x.filter(v=>v.type==="page").length)}catch{process.exit(1)}})' 2>/dev/null || true)"
+  if [[ "$page_count" =~ ^[0-9]+$ ]]; then
+    pass "Chrome page targets ${page_count}"
+  else
+    warn "unable to count Chrome page targets"
+  fi
+
+  for pressure_kind in memory io; do
+    pressure_file="/proc/pressure/$pressure_kind"
+    if [[ -r "$pressure_file" ]]; then
+      pressure_some="$(awk '$1=="some"{for(i=2;i<=NF;i++) if($i ~ /^avg10=/){split($i,a,"=");print a[2]}}' "$pressure_file")"
+      [[ -n "$pressure_some" ]] && pass "PSI ${pressure_kind}.some avg10=${pressure_some}%"
+    fi
+  done
+
+  mem_available_kb="$(awk '/^MemAvailable:/{print $2}' /proc/meminfo)"
+  if [[ "$mem_available_kb" =~ ^[0-9]+$ ]]; then
+    mem_available_mib=$((mem_available_kb / 1024))
+    if (( mem_available_kb < 524288 )); then
+      warn "MemAvailable ${mem_available_mib} MiB (<512 MiB); browser tail latency may increase"
+    else
+      pass "MemAvailable ${mem_available_mib} MiB"
+    fi
+  fi
+
+  swap_total_kb="$(awk '/^SwapTotal:/{print $2}' /proc/meminfo)"
+  swap_free_kb="$(awk '/^SwapFree:/{print $2}' /proc/meminfo)"
+  if [[ "$swap_total_kb" =~ ^[0-9]+$ && "$swap_free_kb" =~ ^[0-9]+$ ]]; then
+    swap_used_kb=$((swap_total_kb - swap_free_kb))
+    swap_used_mib=$((swap_used_kb / 1024))
+    if (( swap_used_kb > 524288 )); then
+      warn "Swap used ${swap_used_mib} MiB (>512 MiB); inspect active paging before blaming network"
+    else
+      pass "Swap used ${swap_used_mib} MiB"
+    fi
+  fi
+
+  read -r pswpin_a pswpout_a < <(awk '/^pswpin /{a=$2} /^pswpout /{b=$2} END{print a+0,b+0}' /proc/vmstat)
+  sleep 1
+  read -r pswpin_b pswpout_b < <(awk '/^pswpin /{a=$2} /^pswpout /{b=$2} END{print a+0,b+0}' /proc/vmstat)
+  pswpin_delta=$((pswpin_b - pswpin_a))
+  pswpout_delta=$((pswpout_b - pswpout_a))
+  if (( pswpin_delta > 0 || pswpout_delta > 0 )); then
+    warn "active swap I/O during 1s sample: pswpin=${pswpin_delta} pages pswpout=${pswpout_delta} pages"
+  else
+    pass "no active swap I/O during 1s sample"
+  fi
+fi
 
 profile=/var/lib/source-acquisition-runtime/chrome-profile
 if [[ -d "$profile" ]]; then
